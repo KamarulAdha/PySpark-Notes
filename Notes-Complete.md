@@ -309,23 +309,58 @@ Example 2: Using Levenshtein distance for product name matching
 ```python
 from pyspark.sql.functions import levenshtein
 
-product_names = spark.createDataFrame([
-    ("Cabernet Sauvignon",),
-    ("Chardonnay",),
-    ("Merlot",),
-    ("Pinot Noir",)
-], ["StandardName"])
+# Create a DataFrame with correct Malaysian state names
+correct_states_df = spark.createDataFrame([
+    ("Johor",),
+    ("Kedah",),
+    ("Kelantan",),
+    ("Melaka",),
+    ("Negeri Sembilan",),
+    ("Pahang",),
+    ("Perak",),
+    ("Perlis",),
+    ("Pulau Pinang",),
+    ("Sabah",),
+    ("Sarawak",),
+    ("Selangor",),
+    ("Terengganu",),
+    ("Kuala Lumpur",),  # Federal Territory
+    ("Labuan",),        # Federal Territory
+    ("Putrajaya",)      # Federal Territory
+], ["CorrectName"])
 
-df_with_fuzzy_match = df.withColumn("ProductName", df.ProductName.cast("string"))
-df_with_fuzzy_match = df_with_fuzzy_match.crossJoin(product_names) \
-    .withColumn("LevenshteinDistance", levenshtein(df.ProductName, product_names.StandardName))
+# Create another DataFrame with misspelled or incorrect state names
+misspelled_states_df = spark.createDataFrame([
+    (1, "Johor Bahru"),    # City name instead of state
+    (2, "Kedha"),          # Misspelled
+    (3, "Kelanten"),       # Misspelled
+    (4, "Malacca"),        # Alternative spelling
+    (5, "Negeri Sembilan Darul Khusus"), # Full name
+    (6, "Pahang Darul Makmur"),          # Full name
+    (7, "Perak Darul Ridzuan"),          # Full name
+    (8, "Perlis Indera Kayangan"),       # Full name
+    (9, "Penang"),         # Alternative name
+    (10, "Sabah Negeri Di Bawah Bayu"),  # With slogan
+    (11, "Sarawak Bumi Kenyalang"),      # With slogan
+    (12, "Selangore"),     # Misspelled
+    (13, "Terengganu Darul Iman"),       # Full name
+    (14, "KL"),            # Abbreviation
+    (15, "Federal Territory of Labuan"), # With prefix
+    (16, "Putrajaya Federal Territory")  # With suffix
+], ["ID", "MisspelledName"])
 
-df_with_fuzzy_match.groupBy("ProductName") \
+# Calculate Levenshtein distance between misspelled names and correct names
+df_with_fuzzy_match = misspelled_states_df.crossJoin(correct_states_df) \
+    .withColumn("LevenshteinDistance", levenshtein(misspelled_states_df.MisspelledName, correct_states_df.CorrectName))
+
+# Find the best match for each misspelled name
+best_matches = df_with_fuzzy_match.groupBy("ID", "MisspelledName") \
     .agg({"LevenshteinDistance": "min"}) \
-    .join(df_with_fuzzy_match, ["ProductName", "LevenshteinDistance"]) \
-    .select("ProductName", "StandardName", "LevenshteinDistance") \
-    .orderBy("LevenshteinDistance") \
-    .show()
+    .join(df_with_fuzzy_match, ["ID", "MisspelledName", "LevenshteinDistance"]) \
+    .select("ID", "MisspelledName", "CorrectName", "LevenshteinDistance") \
+    .orderBy("ID")
+
+best_matches.show(truncate=False)
 ```
 
 ## 13. Data Cleaning and Preprocessing
